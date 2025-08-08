@@ -1,6 +1,7 @@
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # Import necessário
 from pydantic import BaseModel
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.embeddings import OllamaEmbeddings
@@ -8,8 +9,20 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.llms import Ollama
 import os
 
-# Extrair textos do PDF
-caminho = r"C:\Projetos\team-insurances\user_stories.pdf"
+# ✅ Criar o app primeiro
+app = FastAPI()
+
+# ✅ Configurar CORS depois que o app foi criado
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # ou substitua por ["http://localhost:3000"] no caso do React
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Carregar PDF
+caminho = r"C:\Projetos\team-insurances\processamento-batch.pdf"
 
 if os.path.isfile(caminho):
     loader = PyPDFLoader(caminho)
@@ -19,25 +32,24 @@ else:
     print(f"Arquivo não encontrado no caminho: {caminho}")
     exit(1)
 
-# Dividir em chunks
+# Dividir texto
 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 docs = splitter.split_documents(documents)
 
-# Usar modelo correto para embeddings (NÃO é o gemma3)
+# Embeddings e indexação
 embedding = OllamaEmbeddings(model="nomic-embed-text")
 vectorstores = FAISS.from_documents(docs, embedding)
 vectorstores.save_local("user_stories_index")
 
-# Usar o gemma3:1b apenas como LLM para respostas
+# LLM e QA chain
 llm = Ollama(model="gemma3:1b")
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstores.as_retriever())
 
-# Criar API
-app = FastAPI()
-
+# Modelo da requisição
 class Pergunta(BaseModel):
     pergunta: str
 
+# Rota da API
 @app.post("/perguntar")
 def responder(pergunta: Pergunta):
     resposta = qa_chain.run(pergunta.pergunta)
